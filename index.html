@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BelVet – Essayage Virtuel</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Tajawal', sans-serif; }
+    body { background: #0f0f1b; color: white; overflow: hidden; }
+    #app { width: 100vw; height: 100vh; position: relative; }
+    #video, #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+    .controls {
+      position: absolute; bottom: 20px; width: 100%;
+      display: flex; justify-content: center; gap: 15px;
+      padding: 0 20px;
+    }
+    button {
+      background: #ff4d94; color: white; border: none; padding: 12px 20px;
+      border-radius: 30px; font-weight: bold; cursor: pointer;
+      font-size: 16px;
+    }
+    #lang-toggle {
+      position: absolute; top: 20px; right: 20px;
+      background: rgba(255,255,255,0.15); backdrop-filter: blur(5px);
+      border: none; color: white; padding: 8px 16px; border-radius: 20px;
+    }
+    #title {
+      position: absolute; top: 20px; left: 20px; font-size: 24px; font-weight: bold;
+    }
+    .hidden { display: none; }
+  </style>
+  <!-- Police arabe -->
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <div id="title">BelVet</div>
+    <button id="lang-toggle">العربية</button>
+    <video id="video" playsinline muted autoplay class="hidden"></video>
+    <canvas id="canvas"></canvas>
+    <div class="controls">
+      <button id="start-btn">Démarrer la caméra</button>
+      <button id="tshirt-btn">👕 T-Shirt</button>
+      <button id="glasses-btn">👓 Lunettes</button>
+    </div>
+  </div>
+
+  <!-- MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1635989137/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1646426912/face_mesh.js"></script>
+
+  <script>
+    // === TRADUCTIONS ===
+    const translations = {
+      fr: {
+        title: "BelVet",
+        start: "Démarrer la caméra",
+        tshirt: "👕 T-Shirt",
+        glasses: "👓 Lunettes",
+        langBtn: "العربية"
+      },
+      ar: {
+        title: "بيلفيت",
+        start: "تشغيل الكاميرا",
+        tshirt: "👕 قميص",
+        glasses: "👓 نظارات",
+        langBtn: "Français"
+      }
+    };
+
+    let currentLang = 'fr';
+    let currentOverlay = null; // 'tshirt' ou 'glasses'
+
+    // === Éléments DOM ===
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const startBtn = document.getElementById("start-btn");
+    const tshirtBtn = document.getElementById("tshirt-btn");
+    const glassesBtn = document.getElementById("glasses-btn");
+    const langToggle = document.getElementById("lang-toggle");
+    const titleEl = document.getElementById("title");
+
+    // === Images d'accessoires (remplacez par vos propres PNG transparents) ===
+    const assets = {
+      tshirt: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACCCAMAAADQNkiAAAAA1BMVEW10NBjBBbqAAAAH0lEQVRo3u3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBLcQ8AAa6nI/kAAAAASUVORK5CYII=", // placeholder (1px transparent)
+      glasses: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAACCCAMAAADQNkiAAAAA1BMVEW10NBjBBbqAAAAH0lEQVRo3u3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIBLcQ8AAa6nI/kAAAAASUVORK5CYII="
+    };
+
+    // Charger des vrais PNG via URL (optionnel)
+    // assets.tshirt = "https://example.com/tshirt.png";
+    // assets.glasses = "https://example.com/glasses.png";
+
+    // === MediaPipe ===
+    const pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
+    const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+
+    pose.setOptions({ modelComplexity: 1, enableSegmentation: false, minDetectionConfidence: 0.5 });
+    faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5 });
+
+    // === Fonctions ===
+    function updateLang() {
+      const t = translations[currentLang];
+      titleEl.textContent = t.title;
+      startBtn.textContent = t.start;
+      tshirtBtn.textContent = t.tshirt;
+      glassesBtn.textContent = t.glasses;
+      langToggle.textContent = t.langBtn;
+      document.documentElement.lang = currentLang;
+      document.documentElement.dir = currentLang === 'ar' ? 'rtl' : 'ltr';
+    }
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      video.srcObject = stream;
+      video.classList.remove("hidden");
+      await new Promise((resolve) => { video.onloadedmetadata = resolve; });
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    function onResults(results) {
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      // Superposer vêtement ou accessoire
+      if (currentOverlay === 'tshirt' && results.poseLandmarks) {
+        const l = results.poseLandmarks[11]; // épaule gauche
+        const r = results.poseLandmarks[12]; // épaule droite
+        if (l && r) {
+          const cx = (l.x + r.x) / 2 * canvas.width;
+          const cy = (l.y + r.y) / 2 * canvas.height;
+          const w = Math.abs(l.x - r.x) * canvas.width * 2.2;
+          const h = w * 1.2;
+          const img = new Image();
+          img.src = assets.tshirt;
+          img.onload = () => {
+            ctx.drawImage(img, cx - w/2, cy - h*0.2, w, h);
+          };
+        }
+      }
+
+      if (currentOverlay === 'glasses' && results.faceLandmarks) {
+        const nose = results.faceLandmarks[1]; // bout du nez
+        const leye = results.faceLandmarks[130]; // coin œil gauche
+        const reye = results.faceLandmarks[359]; // coin œil droit
+        if (nose && leye && reye) {
+          const cx = (leye.x + reye.x) / 2 * canvas.width;
+          const cy = nose.y * canvas.height;
+          const w = Math.abs(leye.x - reye.x) * canvas.width * 2;
+          const h = w * 0.4;
+          const img = new Image();
+          img.src = assets.glasses;
+          img.onload = () => {
+            ctx.drawImage(img, cx - w/2, cy - h/2, w, h);
+          };
+        }
+      }
+
+      ctx.restore();
+    }
+
+    // === Événements ===
+    startBtn.onclick = async () => {
+      await setupCamera();
+      pose.onResults(onResults);
+      faceMesh.onResults(onResults);
+      const interval = setInterval(() => {
+        pose.send({ image: video });
+        faceMesh.send({ image: video });
+      }, 50);
+      startBtn.disabled = true;
+    };
+
+    tshirtBtn.onclick = () => { currentOverlay = 'tshirt'; };
+    glassesBtn.onclick = () => { currentOverlay = 'glasses'; };
+
+    langToggle.onclick = () => {
+      currentLang = currentLang === 'fr' ? 'ar' : 'fr';
+      updateLang();
+    };
+
+    // Initialisation
+    updateLang();
+  </script>
+</body>
+</html>
