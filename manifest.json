@@ -1,7 +1,7 @@
 {
-  "name": "BelVet - Essayage Virtuel",
+  "name": "BelVet - Essayage Virtuel en Arabe et Français",
   "short_name": "BelVet",
-  "start_url": ".",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#0f0f1b",
   "theme_color": "#ff4d94",
@@ -14,5 +14,7 @@
   ],
   "description": "Essayez des vêtements et accessoires en temps réel avec votre caméra, en arabe et français.",
   "lang": "fr",
-  "dir": "ltr"
+  "dir": "ltr",
+  "scope": "/",
+  "orientation": "portrait-primary"
 }
